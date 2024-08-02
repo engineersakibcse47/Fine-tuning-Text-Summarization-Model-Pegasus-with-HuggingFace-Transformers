@@ -1,30 +1,115 @@
-# Fine-tuning Text Summarization Model- Pegasus with HuggingFace Transformers
 
-### Introduction
+# Text Summarization - Fine-Tuning Google Pegasus Model on Custom Dataset to Higgingface Transformer. 
 
-This project aimed to fine-tune the Pegasus model on the SAMSum (Self-Annotated Multi-Modal Summarization) dataset, a collection of dialogues paired with summaries. The objective was to adapt the pre-trained Pegasus model to generate accurate and concise summaries for dialogues.
+## Introduction
 
-### Methodology
+The aim of this project is to fine-tune the Google Pegasus model, a state-of-the-art summarization model, on a custom dataset. This involves several steps, including dependency installation, model downloading, dataset loading, preprocessing, and training. Finally, the model's performance will be evaluated using the ROUGE score.
 
-1. Dependency Installation
-We installed necessary dependencies using pip, including the Transformers library for model handling, datasets for dataset loading, and evaluation metrics such as ROUGE.
+## Dependency Installation
 
-2. Model Selection and Loading
-The Pegasus model (google/pegasus-cnn_dailymail) was selected for its effectiveness in abstractive summarization tasks. We loaded the pre-trained model along with its tokenizer.
+To begin with, the necessary dependencies must be installed. This typically includes libraries such as `transformers` from Hugging Face, which provides the Pegasus model and related tools for text processing and training.
 
-3. Dataset Preparation
-The SAMSum dataset was loaded using the datasets library. It consists of train, test, and validation splits, each containing dialogues and their corresponding summaries.
+```bash
+pip install transformers
+pip install datasets
+pip install rouge_score
+```
 
-4. Preprocessing and Tokenization
-We prepared the dataset for training by defining a preprocessing function to tokenize dialogues and summaries. This function encoded the data into input-output pairs suitable for sequence-to-sequence tasks.
+## Download Model
 
-5. Training
-Training was performed using the Trainer module from the Transformers library. We configured training parameters such as batch size, number of epochs, and evaluation strategy. The model was trained on the training split of the SAMSum dataset.
+The Pegasus model is then downloaded from the Hugging Face model repository. This pre-trained model serves as the base for further fine-tuning on the specific dataset.
 
-6. Evaluation
-The fine-tuned model was evaluated using the ROUGE metric on the test set. ROUGE scores were calculated to assess the quality of the generated summaries compared to the ground truth.
+```python
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model_ckpt = "google/pegasus-cnn_dailymail"
+tokenizer = AutoTokenizer.from_pretrained(model_ckpt)
+model_pegasus = AutoModelForSeq2SeqLM.from_pretrained(model_ckpt).to(device)
+```
 
-### Conclusion
-In this project, we successfully fine-tuned the Pegasus model on the SAMSum dataset. However, the obtained ROUGE scores indicate that the model's performance may not meet the desired standards. Further analysis and experimentation may be needed to improve the summarization quality, potentially through adjustments in training strategies, hyperparameters tuning, or dataset augmentation.
+## Load Dataset
 
+The custom dataset is loaded for training the model. This dataset should be in a format suitable for text summarization tasks, with input texts and corresponding summaries.
 
+```python
+from datasets import load_dataset
+
+samsum = load_dataset('samsum')
+```
+
+## Preprocess Dataset
+
+### Visualize Length
+
+Before preprocessing, it is helpful to visualize the length of the texts and summaries in the dataset. This can guide decisions about truncation or padding during preprocessing.
+
+```python
+dialogue_len = [len(x['dialogue'].split()) for x in samsum['train']]
+summary_len = [len(x['summary'].split()) for x in samsum['train']]
+import pandas as pd
+
+data = pd.DataFrame([dialogue_len, summary_len]).T
+data.columns = ['Dialogue Length', 'Summary Length']
+
+data.hist(figsize=(15,5))
+```
+
+### Tokenization
+
+A `preprocess_function()` is defined to tokenize the entire corpus. The `Dataset.map()` function from the `datasets` library is used to apply this preprocessing to the dataset efficiently.
+
+```python
+def preprocess_function(example_batch):
+
+    encodings = tokenizer(example_batch['dialogue'], text_target=example_batch['summary'],
+                        max_length=1024, truncation=True)
+
+    encodings = {'input_ids': encodings['input_ids'],
+               'attention_mask': encodings['attention_mask'],
+               'labels': encodings['labels']}
+
+    return encodings
+```
+
+## Build Trainer
+
+A trainer is built using the `Trainer` class from the `transformers` library. This class facilitates the training process by managing the model, optimizer, and training loop. Key parameters, such as learning rate and batch size, are set during this step.
+
+```python
+trainer = Trainer(model=model_pegasus,
+                  args=training_args,
+                  tokenizer=tokenizer,
+                  data_collator=data_collator,
+                  train_dataset = samsum_tokenize_pt['train'],
+                  eval_dataset = samsum_tokenize_pt['validation'])
+```
+
+## Test Model Pipeline
+
+After training, the model is tested on a validation set to assess its performance. This involves generating summaries for the validation texts and comparing them to the reference summaries.
+
+```python
+from transformers import pipeline
+gen_kwargs = {"length_penalty": 0.8, "num_beams":8, "max_length": 128}
+pipe = pipeline("summarization", model="pegasus-samsum-model",tokenizer=tokenizer)
+```
+
+## Evaluate Performance
+
+### Calculate ROUGE Score
+
+The ROUGE score, a common metric for evaluating summarization models, is calculated to quantify the model's performance. The ROUGE score compares the overlap of n-grams between the generated summaries and the reference summaries, providing insight into the model's accuracy and coherence.
+
+```python
+rouge_metric = load_metric('rouge')
+
+score = calculate_metric_on_test_ds(
+    samsum['test'], rouge_metric, trainer.model, tokenizer, batch_size = 2, column_text = 'dialogue', column_summary= 'summary')
+
+rouge_names = ["rouge1", "rouge2", "rougeL", "rougeLsum"]
+rouge_dict = dict((rn, score[rn].mid.fmeasure ) for rn in rouge_names )
+pd.DataFrame(rouge_dict, index = [f'pegasus'] )
+```
+
+## Conclusion
+The project successfully fine-tuned the Pegasus model on a custom dataset for summarization. Key steps included dependency installation, dataset preprocessing, and model training using the transformers library. The model's performance was evaluated using ROUGE scores. Future work could explore further hyperparameter tuning and dataset augmentation to enhance model accuracy.
