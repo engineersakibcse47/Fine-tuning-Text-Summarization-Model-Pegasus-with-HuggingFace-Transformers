@@ -1,5 +1,5 @@
 
-# Text Summarization - Fine-Tuning Google Pegasus Model on Custom Dataset to Higgingface Transformer. 
+## Text Summarization - Fine Tuning Google Pegasus Model on Custom Dataset to Higgingface Transformer. 
 
 ## Introduction
 
